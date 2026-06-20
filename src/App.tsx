@@ -11,7 +11,7 @@ import { SettingsModal } from './components/settings-modal';
 import { IntegratedFileBrowser } from './components/integrated-file-browser';
 import { WelcomeScreen } from './components/welcome-screen';
 import { UpdateChecker } from './components/update-checker';
-import { ActiveConnectionsManager, ConnectionStorageManager } from './lib/connection-storage';
+import { ActiveConnectionsManager, ConnectionStorageManager, type ConnectionData } from './lib/connection-storage';
 import { isDesktopProtocol } from './lib/protocol-config';
 import { buildProxyPayload } from './lib/proxy-config';
 import { registerRestoration, clearAllRestorations } from './lib/restoration-manager';
@@ -48,6 +48,38 @@ interface ConnectionNode {
   isConnected?: boolean;
   children?: ConnectionNode[];
   isExpanded?: boolean;
+}
+
+/**
+ * Map a stored ConnectionData to a ConnectionConfig for the edit dialog.
+ * Carries EVERY field the dialog can edit so that reopening a saved
+ * connection shows its real state (proxy, FTPS, RDP/VNC settings, …)
+ * instead of falling back to defaults. Any field omitted here would
+ * silently reset to the dialog's defaultConfig when the user re-opens
+ * the connection for editing — which is how proxy settings were lost.
+ */
+function toEditingConnection(data: ConnectionData, id: string): ConnectionConfig {
+  return {
+    id,
+    name: data.name,
+    protocol: data.protocol as ConnectionConfig['protocol'],
+    host: data.host,
+    port: data.port,
+    username: data.username,
+    authMethod: (data.authMethod || 'password') as ConnectionConfig['authMethod'],
+    password: data.password,
+    privateKeyPath: data.privateKeyPath,
+    passphrase: data.passphrase,
+    proxyType: data.proxyType as ConnectionConfig['proxyType'],
+    proxyHost: data.proxyHost,
+    proxyPort: data.proxyPort,
+    proxyUsername: data.proxyUsername,
+    proxyPassword: data.proxyPassword,
+    ftpsEnabled: data.ftpsEnabled,
+    domain: data.domain,
+    rdpResolution: data.rdpResolution as ConnectionConfig['rdpResolution'],
+    vncColorDepth: data.vncColorDepth as ConnectionConfig['vncColorDepth'],
+  };
 }
 
 function AppContent() {
@@ -231,9 +263,10 @@ function AppContent() {
         }
 
         const isDesktopProto = connectionData.protocol === 'RDP' || connectionData.protocol === 'VNC';
+        const usesPassword = connectionData.authMethod === 'password' || connectionData.authMethod === 'keyboard-interactive';
         const hasCredentials = isDesktopProto
           ? true // Desktop protocols can connect with or without credentials
-          : connectionData.authMethod === 'password'
+          : usesPassword
             ? !!connectionData.password
             : (connectionData.authMethod === 'anonymous' ? true : !!connectionData.privateKeyPath);
 
@@ -486,23 +519,15 @@ function AppContent() {
       const isFileBrowser = isSftp || isFtp;
 
       const hasCredentials = isFileBrowser
-        ? (connectionData.authMethod === 'anonymous' || connectionData.authMethod === 'password'
+        ? (connectionData.authMethod === 'anonymous' || connectionData.authMethod === 'password' || connectionData.authMethod === 'keyboard-interactive'
           ? (connectionData.authMethod === 'anonymous' || !!connectionData.password)
           : !!connectionData.privateKeyPath)
-        : (connectionData.authMethod === 'password'
+        : (connectionData.authMethod === 'password' || connectionData.authMethod === 'keyboard-interactive'
           ? !!connectionData.password
           : !!connectionData.privateKeyPath);
 
       if (!hasCredentials) {
-        setEditingConnection({
-          id: connection.id,
-          name: connectionData.name,
-          protocol: connectionData.protocol as ConnectionConfig['protocol'],
-          host: connectionData.host,
-          port: connectionData.port,
-          username: connectionData.username,
-          authMethod: connectionData.authMethod || 'password',
-        });
+        setEditingConnection(toEditingConnection(connectionData, connection.id));
         setConnectionDialogOpen(true);
         return;
       }
@@ -604,15 +629,7 @@ function AppContent() {
             toast.error('Connection Failed', {
               description: result.error || 'Unable to connect to the server. Please check your credentials and try again.',
             });
-            setEditingConnection({
-              id: connection.id,
-              name: connectionData.name,
-              protocol: connectionData.protocol as ConnectionConfig['protocol'],
-              host: connectionData.host,
-              port: connectionData.port,
-              username: connectionData.username,
-              authMethod: connectionData.authMethod || 'password',
-            });
+            setEditingConnection(toEditingConnection(connectionData, connection.id));
             setConnectionDialogOpen(true);
           }
         } catch (error) {
@@ -620,15 +637,7 @@ function AppContent() {
           toast.error('Connection Error', {
             description: error instanceof Error ? error.message : 'An unexpected error occurred while connecting.',
           });
-          setEditingConnection({
-            id: connection.id,
-            name: connectionData.name,
-            protocol: connectionData.protocol as ConnectionConfig['protocol'],
-            host: connectionData.host,
-            port: connectionData.port,
-            username: connectionData.username,
-            authMethod: connectionData.authMethod || 'password',
-          });
+          setEditingConnection(toEditingConnection(connectionData, connection.id));
           setConnectionDialogOpen(true);
         }
       }
@@ -693,7 +702,7 @@ function AppContent() {
 
     const hasCredentials = isFileBrowser
       ? (connectionData.authMethod === 'anonymous' || !!connectionData.password || !!connectionData.privateKeyPath)
-      : (connectionData.authMethod === 'password'
+      : (connectionData.authMethod === 'password' || connectionData.authMethod === 'keyboard-interactive'
         ? !!connectionData.password
         : !!connectionData.privateKeyPath);
 
@@ -830,7 +839,7 @@ function AppContent() {
 
     const hasCredentials = isFileBrowser
       ? (connectionData.authMethod === 'anonymous' || !!connectionData.password || !!connectionData.privateKeyPath)
-      : (connectionData.authMethod === 'password'
+      : (connectionData.authMethod === 'password' || connectionData.authMethod === 'keyboard-interactive'
         ? !!connectionData.password
         : !!connectionData.privateKeyPath);
 
@@ -838,15 +847,7 @@ function AppContent() {
       toast.error('Cannot Reconnect', {
         description: 'No saved credentials found. Please connect manually.',
       });
-      setEditingConnection({
-        id: originalConnectionId,
-        name: connectionData.name,
-        protocol: connectionData.protocol as ConnectionConfig['protocol'],
-        host: connectionData.host,
-        port: connectionData.port,
-        username: connectionData.username,
-        authMethod: connectionData.authMethod || 'password',
-      });
+      setEditingConnection(toEditingConnection(connectionData, originalConnectionId));
       setConnectionDialogOpen(true);
       return;
     }
@@ -1260,21 +1261,7 @@ function AppContent() {
     if (connection.type === 'connection') {
       const connectionData = ConnectionStorageManager.getConnection(connection.id);
       if (connectionData) {
-        setEditingConnection({
-          id: connectionData.id,
-          name: connectionData.name,
-          protocol: connectionData.protocol as ConnectionConfig['protocol'],
-          host: connectionData.host,
-          port: connectionData.port,
-          username: connectionData.username,
-          authMethod: connectionData.authMethod || 'password',
-          password: connectionData.password,
-          privateKeyPath: connectionData.privateKeyPath,
-          passphrase: connectionData.passphrase,
-          domain: connectionData.domain,
-          rdpResolution: connectionData.rdpResolution as ConnectionConfig['rdpResolution'],
-          vncColorDepth: connectionData.vncColorDepth as ConnectionConfig['vncColorDepth'],
-        });
+        setEditingConnection(toEditingConnection(connectionData, connectionData.id));
         setConnectionDialogOpen(true);
       } else {
         toast.error('Connection Not Found', {
@@ -1321,20 +1308,12 @@ function AppContent() {
 
     const hasCredentials = isFileBrowser
       ? (connectionData.authMethod === 'anonymous' || !!connectionData.password || !!connectionData.privateKeyPath)
-      : (connectionData.authMethod === 'password'
+      : (connectionData.authMethod === 'password' || connectionData.authMethod === 'keyboard-interactive'
         ? !!connectionData.password
         : !!connectionData.privateKeyPath);
 
     if (!hasCredentials) {
-      setEditingConnection({
-        id: connectionData.id,
-        name: connectionData.name,
-        protocol: connectionData.protocol as ConnectionConfig['protocol'],
-        host: connectionData.host,
-        port: connectionData.port,
-        username: connectionData.username,
-        authMethod: connectionData.authMethod || 'password',
-      });
+      setEditingConnection(toEditingConnection(connectionData, connectionData.id));
       setConnectionDialogOpen(true);
       return;
     }
@@ -1409,15 +1388,7 @@ function AppContent() {
           toast.error('Connection Failed', {
             description: result.error || 'Unable to connect. Please try again.',
           });
-          setEditingConnection({
-            id: connectionData.id,
-            name: connectionData.name,
-            protocol: connectionData.protocol as ConnectionConfig['protocol'],
-            host: connectionData.host,
-            port: connectionData.port,
-            username: connectionData.username,
-            authMethod: connectionData.authMethod || 'password',
-          });
+          setEditingConnection(toEditingConnection(connectionData, connectionData.id));
           setConnectionDialogOpen(true);
         }
       } catch (error) {

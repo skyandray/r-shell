@@ -219,9 +219,9 @@ export function ConnectionDialog({
     }
 
     // Validate authentication method specific fields
-    if (config.authMethod === 'password' && !config.password) {
+    if ((config.authMethod === 'password' || config.authMethod === 'keyboard-interactive') && !config.password) {
       toast.error('Password Required', {
-        description: 'Please enter a password for password authentication.',
+        description: 'Please enter a password for authentication.',
       });
       resetConnectionState();
       return;
@@ -709,6 +709,22 @@ export function ConnectionDialog({
                   </div>
                 )}
 
+                {config.authMethod === 'keyboard-interactive' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="Enter password (sent as keyboard-interactive response)"
+                      value={config.password}
+                      onChange={(e) => updateConfig({ password: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      The password is submitted automatically when the server prompts during keyboard-interactive authentication.
+                    </p>
+                  </div>
+                )}
+
                 {config.authMethod === 'publickey' && (
                   <div className="space-y-4">
                     <div className="space-y-2">
@@ -768,7 +784,7 @@ export function ConnectionDialog({
                     <span className="font-medium">Security Note</span>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {config.authMethod === 'password' ? (
+                    {config.authMethod === 'password' || config.authMethod === 'keyboard-interactive' ? (
                       <>For production environments, we recommend using public key authentication instead of passwords for enhanced security.</>
                     ) : config.authMethod === 'anonymous' ? (
                       <>Anonymous connections are not encrypted. Use FTPS for secure file transfers when possible.</>
@@ -840,6 +856,7 @@ export function ConnectionDialog({
                         <Input
                           id="proxy-username"
                           placeholder="Optional"
+                          value={config.proxyUsername}
                           onChange={(e) => updateConfig({ proxyUsername: e.target.value })}
                         />
                       </div>

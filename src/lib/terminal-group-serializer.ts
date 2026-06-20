@@ -3,7 +3,11 @@ import type { TerminalGroupState, GridNode } from './terminal-group-types';
 export const STORAGE_KEY = 'r-shell-terminal-groups';
 export const STATE_VERSION = 1;
 
-const LEGACY_ACTIVE_CONNECTIONS_KEY = 'r-shell-active-connections';
+// True legacy key from before the session→connection rename.
+// `r-shell-active-connections` is the CURRENT key used by ActiveConnectionsManager
+// (see connection-storage.ts) and must NOT be removed here — doing so would wipe
+// the user's active tab list on every launch and break session restoration.
+const LEGACY_ACTIVE_SESSIONS_KEY = 'r-shell-active-sessions';
 
 interface SerializedState {
   version: number;
@@ -86,9 +90,11 @@ export function loadState(): TerminalGroupState | null {
 export function migrateFromLegacy(): void {
   let migrated = false;
 
-  // Check for legacy active connections key
-  if (localStorage.getItem(LEGACY_ACTIVE_CONNECTIONS_KEY) !== null) {
-    localStorage.removeItem(LEGACY_ACTIVE_CONNECTIONS_KEY);
+  // Check for legacy active sessions key (pre-rename). The current
+  // `r-shell-active-connections` key is owned by ActiveConnectionsManager
+  // and handled by its own migrateFromActiveSessions() — leave it alone.
+  if (localStorage.getItem(LEGACY_ACTIVE_SESSIONS_KEY) !== null) {
+    localStorage.removeItem(LEGACY_ACTIVE_SESSIONS_KEY);
     migrated = true;
   }
 

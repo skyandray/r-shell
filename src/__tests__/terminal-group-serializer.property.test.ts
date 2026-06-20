@@ -151,11 +151,12 @@ describe('terminal-group-serializer property tests', () => {
           fc.string({ minLength: 1 }),
           fc.string({ minLength: 1 }),
           fc.string({ minLength: 1 }),
-          (legacyActiveConnections, legacyLayoutData, connectionData) => {
+          (legacyActiveSessions, legacyLayoutData, connectionData) => {
             localStorage.clear();
 
-            // Set legacy keys
-            localStorage.setItem('r-shell-active-connections', legacyActiveConnections);
+            // Set legacy keys (r-shell-active-sessions is the pre-rename legacy key;
+            // r-shell-active-connections is the CURRENT key and must NOT be touched)
+            localStorage.setItem('r-shell-active-sessions', legacyActiveSessions);
             localStorage.setItem(STORAGE_KEY, legacyLayoutData);
 
             // Set ConnectionData key that should be preserved
@@ -163,8 +164,8 @@ describe('terminal-group-serializer property tests', () => {
 
             migrateFromLegacy();
 
-            // Legacy active connections key should be cleared
-            expect(localStorage.getItem('r-shell-active-connections')).toBeNull();
+            // Legacy active sessions key should be cleared
+            expect(localStorage.getItem('r-shell-active-sessions')).toBeNull();
 
             // ConnectionData should be preserved
             expect(localStorage.getItem('r-shell-connections')).toBe(connectionData);

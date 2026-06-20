@@ -32,6 +32,11 @@ pub enum SftpAuthMethod {
         key_path: String,
         passphrase: Option<String>,
     },
+    /// Keyboard-interactive authentication that reuses the stored password as
+    /// the response to each server prompt. See `ssh::AuthMethod::KeyboardInteractive`.
+    KeyboardInteractive {
+        password: String,
+    },
 }
 
 /// A single file/directory entry returned from directory listings.
@@ -110,6 +115,39 @@ impl StandaloneSftpClient {
                 .authenticate_password(&config.username, password)
                 .await
                 .map_err(|e| anyhow::anyhow!("SFTP password authentication failed: {}", e))?,
+            SftpAuthMethod::KeyboardInteractive { password } => {
+                use russh::client::KeyboardInteractiveAuthResponse;
+                let mut response = ssh_session
+                    .authenticate_keyboard_interactive_start(&config.username, None::<String>)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("SFTP keyboard-interactive authentication failed to start: {}", e))?;
+
+                let mut rounds = 0u8;
+                let max_rounds = 8u8;
+                loop {
+                    match response {
+                        KeyboardInteractiveAuthResponse::Success => break true,
+                        KeyboardInteractiveAuthResponse::Failure => {
+                            return Err(anyhow::anyhow!(
+                                "SFTP keyboard-interactive authentication failed. Please verify your credentials."
+                            ));
+                        }
+                        KeyboardInteractiveAuthResponse::InfoRequest { .. } => {
+                            rounds += 1;
+                            if rounds > max_rounds {
+                                return Err(anyhow::anyhow!(
+                                    "SFTP keyboard-interactive authentication exceeded the maximum number of rounds ({}).",
+                                    max_rounds
+                                ));
+                            }
+                            response = ssh_session
+                                .authenticate_keyboard_interactive_respond(vec![password.clone()])
+                                .await
+                                .map_err(|e| anyhow::anyhow!("SFTP keyboard-interactive response failed: {}", e))?;
+                        }
+                    }
+                }
+            }
             SftpAuthMethod::PublicKey {
                 key_path,
                 passphrase,

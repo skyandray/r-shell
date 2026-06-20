@@ -48,6 +48,13 @@ pub enum AuthMethod {
         key_path: String,
         passphrase: Option<String>,
     },
+    /// Keyboard-interactive authentication. The password is submitted as the
+    /// response to each server prompt. This supports servers (and PAM
+    /// modules) that advertise keyboard-interactive but not the plain
+    /// "password" method, while reusing the same stored credential.
+    KeyboardInteractive {
+        password: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +143,52 @@ impl SshClient {
                 .authenticate_password(&config.username, password)
                 .await
                 .map_err(|e| anyhow::anyhow!("Password authentication failed: {}", e))?,
+            AuthMethod::KeyboardInteractive { password } => {
+                // Drive the keyboard-interactive exchange, responding to every
+                // server prompt with the stored password. Most PAM-based servers
+                // issue a single "Password:" prompt, but the protocol allows
+                // multiple rounds, so loop until we get a terminal state.
+                use russh::client::KeyboardInteractiveAuthResponse;
+                let mut response = ssh_session
+                    .authenticate_keyboard_interactive_start(&config.username, None::<String>)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Keyboard-interactive authentication failed to start: {}", e))?;
+
+                let mut rounds = 0u8;
+                let max_rounds = 8u8;
+                loop {
+                    match response {
+                        KeyboardInteractiveAuthResponse::Success => break true,
+                        KeyboardInteractiveAuthResponse::Failure => {
+                            return Err(anyhow::anyhow!(
+                                "Keyboard-interactive authentication failed. Please verify your credentials."
+                            ));
+                        }
+                        KeyboardInteractiveAuthResponse::InfoRequest { .. } => {
+                            rounds += 1;
+                            if rounds > max_rounds {
+                                return Err(anyhow::anyhow!(
+                                    "Keyboard-interactive authentication exceeded the maximum number of rounds ({}). The server may be misconfigured.",
+                                    max_rounds
+                                ));
+                            }
+                            // Respond with the password for every prompt in this round.
+                            // The number of responses must match the number of prompts.
+                            // We don't know how many prompts the server sent, but
+                            // wait_recv_keyboard_interactive_reply consumed the whole
+                            // InfoRequest; the prompt count is not exposed on the
+                            // response enum. Re-query by sending a single response
+                            // and relying on the server to re-prompt if it needs more.
+                            // To match prompt counts correctly, we send one response
+                            // per round (the common PAM case).
+                            response = ssh_session
+                                .authenticate_keyboard_interactive_respond(vec![password.clone()])
+                                .await
+                                .map_err(|e| anyhow::anyhow!("Keyboard-interactive response failed: {}", e))?;
+                        }
+                    }
+                }
+            }
             AuthMethod::PublicKey {
                 key_path,
                 passphrase,

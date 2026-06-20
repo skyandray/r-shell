@@ -67,6 +67,9 @@ pub async fn ssh_connect(
         "password" => AuthMethod::Password {
             password: request.password.ok_or("Password required")?,
         },
+        "keyboard-interactive" => AuthMethod::KeyboardInteractive {
+            password: request.password.ok_or("Password required")?,
+        },
         "publickey" => AuthMethod::PublicKey {
             key_path: request.key_path.ok_or("Key path required")?,
             passphrase: request.passphrase,
@@ -2044,6 +2047,9 @@ pub async fn sftp_connect(
     let auth = match request.auth_method.as_str() {
         "password" => SftpAuthMethod::Password {
             password: request.password.unwrap_or_default(),
+        },
+        "keyboard-interactive" => SftpAuthMethod::KeyboardInteractive {
+            password: request.password.ok_or("Password required for SFTP")?,
         },
         "publickey" => SftpAuthMethod::PublicKey {
             key_path: request.key_path.ok_or("Key path required for SFTP")?,

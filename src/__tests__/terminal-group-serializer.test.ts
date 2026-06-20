@@ -160,14 +160,27 @@ describe('migrateFromLegacy', () => {
     localStorage.clear();
   });
 
-  it('removes legacy active connections key', () => {
-    localStorage.setItem('r-shell-active-connections', '[]');
+  it('removes legacy active sessions key (pre-rename)', () => {
+    localStorage.setItem('r-shell-active-sessions', '[]');
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     migrateFromLegacy();
 
-    expect(localStorage.getItem('r-shell-active-connections')).toBeNull();
+    expect(localStorage.getItem('r-shell-active-sessions')).toBeNull();
     expect(logSpy).toHaveBeenCalledOnce();
+    logSpy.mockRestore();
+  });
+
+  it('preserves the current active connections key (r-shell-active-connections)', () => {
+    // This is the CURRENT key used by ActiveConnectionsManager — it must NOT
+    // be removed by migrateFromLegacy, or session restoration breaks.
+    localStorage.setItem('r-shell-active-connections', JSON.stringify([{ tabId: 't1', connectionId: 't1', order: 0 }]));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    migrateFromLegacy();
+
+    expect(localStorage.getItem('r-shell-active-connections')).not.toBeNull();
+    expect(logSpy).not.toHaveBeenCalled();
     logSpy.mockRestore();
   });
 
@@ -206,7 +219,7 @@ describe('migrateFromLegacy', () => {
   });
 
   it('preserves ConnectionData keys untouched', () => {
-    localStorage.setItem('r-shell-active-connections', '[]');
+    localStorage.setItem('r-shell-active-sessions', '[]');
     localStorage.setItem('r-shell-connections', '{"profiles":[]}');
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -226,13 +239,13 @@ describe('migrateFromLegacy', () => {
   });
 
   it('handles both legacy keys present simultaneously', () => {
-    localStorage.setItem('r-shell-active-connections', '[]');
+    localStorage.setItem('r-shell-active-sessions', '[]');
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs: [] }));
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     migrateFromLegacy();
 
-    expect(localStorage.getItem('r-shell-active-connections')).toBeNull();
+    expect(localStorage.getItem('r-shell-active-sessions')).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(logSpy).toHaveBeenCalledOnce();
     logSpy.mockRestore();
